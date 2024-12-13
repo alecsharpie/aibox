@@ -1,29 +1,11 @@
-# -*- coding: utf-8 -*-
-# Copyright 2023 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import asyncio
 import base64
 import io
 import os
 import sys
 import traceback
-
-# import cv2
 import pyaudio
 import PIL.Image
-
 from google import genai
 
 if sys.version_info < (3, 11, 0):
@@ -45,20 +27,14 @@ client = genai.Client(
 CONFIG={
     "generation_config": {"response_modalities": ["AUDIO"]}}
 
-pya = pyaudio.PyAudio()
-
-
 class AudioLoop:
     def __init__(self):
         self.audio_in_queue = asyncio.Queue()
         self.audio_out_queue = asyncio.Queue()
-        # self.video_out_queue = asyncio.Queue()
-
         self.session = None
-
-        self.send_text_task = None
-        self.receive_audio_task = None
-        self.play_audio_task = None
+        self.is_playing = asyncio.Event()
+        self.mic_stream = None
+        self.pya = pyaudio.PyAudio()  # Create PyAudio instance once
 
     async def send_text(self):
         while True:
@@ -68,11 +44,10 @@ class AudioLoop:
             await self.session.send(text or ".", end_of_turn=True)
 
     async def listen_audio(self):
-        pya = pyaudio.PyAudio()
-
-        mic_info = pya.get_default_input_device_info()
-        stream = await asyncio.to_thread(
-            pya.open,
+        # Initialize microphone stream
+        mic_info = self.pya.get_default_input_device_info()
+        self.mic_stream = await asyncio.to_thread(
+            self.pya.open,
             format=FORMAT,
             channels=CHANNELS,
             rate=SEND_SAMPLE_RATE,
@@ -80,9 +55,37 @@ class AudioLoop:
             input_device_index=mic_info["index"],
             frames_per_buffer=CHUNK_SIZE,
         )
-        while True:
-            data = await asyncio.to_thread(stream.read, CHUNK_SIZE)
-            self.audio_out_queue.put_nowait(data)
+        
+        try:
+            while True:
+                if not self.is_playing.is_set():  # Only read from mic when not playing
+                    try:
+                        # Use a shorter timeout for reading to allow for smoother state transitions
+                        data = await asyncio.to_thread(
+                            self.mic_stream.read, 
+                            CHUNK_SIZE, 
+                            exception_on_overflow=False
+                        )
+                        await self.audio_out_queue.put(data)
+                    except OSError as e:
+                        if e.errno == -9988:  # Stream closed error
+                            print("Microphone stream was closed, reopening...")
+                            # Reopen the stream if it was closed
+                            self.mic_stream = await asyncio.to_thread(
+                                self.pya.open,
+                                format=FORMAT,
+                                channels=CHANNELS,
+                                rate=SEND_SAMPLE_RATE,
+                                input=True,
+                                input_device_index=mic_info["index"],
+                                frames_per_buffer=CHUNK_SIZE,
+                            )
+                        else:
+                            print(f"Unexpected microphone error: {e}")
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+        except Exception as e:
+            print(f"Fatal microphone error: {e}")
+            raise
 
     async def send_audio(self):
         while True:
@@ -90,7 +93,6 @@ class AudioLoop:
             await self.session.send({"data": chunk, "mime_type": "audio/pcm"})
 
     async def receive_audio(self):
-        "Background task to reads from the websocket and write pcm chunks to the output queue"
         while True:
             async for response in self.session.receive():
                 server_content = response.server_content
@@ -103,33 +105,40 @@ class AudioLoop:
                             if part.text is not None:
                                 print(part.text, end="")
                             elif part.inline_data is not None:
-                                self.audio_in_queue.put_nowait(part.inline_data.data)
+                                self.is_playing.set()  # Set flag before playing
+                                await self.audio_in_queue.put(part.inline_data.data)
 
                     server_content.model_turn = None
                     turn_complete = server_content.turn_complete
                     if turn_complete:
-                        # If you interrupt the model, it sends a turn_complete.
-                        # For interruptions to work, we need to stop playback.
-                        # So empty out the audio queue because it may have loaded
-                        # much more audio than has played yet.
                         print("Turn complete")
+                        # Clear the audio queue
                         while not self.audio_in_queue.empty():
                             self.audio_in_queue.get_nowait()
+                        await asyncio.sleep(0.1)  # Small delay before clearing flag
+                        self.is_playing.clear()
 
     async def play_audio(self):
-        pya = pyaudio.PyAudio()
-        stream = await asyncio.to_thread(
-            pya.open, format=FORMAT, channels=CHANNELS, rate=RECEIVE_SAMPLE_RATE, output=True
+        speaker_stream = await asyncio.to_thread(
+            self.pya.open, 
+            format=FORMAT, 
+            channels=CHANNELS, 
+            rate=RECEIVE_SAMPLE_RATE, 
+            output=True
         )
-        while True:
-            bytestream = await self.audio_in_queue.get()
-            await asyncio.to_thread(stream.write, bytestream)
+        
+        try:
+            while True:
+                bytestream = await self.audio_in_queue.get()
+                await asyncio.to_thread(speaker_stream.write, bytestream)
+                if self.audio_in_queue.empty():
+                    await asyncio.sleep(0.1)  # Small delay before clearing flag
+                    self.is_playing.clear()
+        finally:
+            speaker_stream.stop_stream()
+            speaker_stream.close()
 
     async def run(self):
-        """Takes audio chunks off the input queue, and writes them to files.
-
-        Splits and displays files if the queue pauses for more than `max_pause`.
-        """
         async with (
             client.aio.live.connect(model=MODEL, config=CONFIG) as session,
             asyncio.TaskGroup() as tg,
@@ -139,6 +148,10 @@ class AudioLoop:
             send_text_task = tg.create_task(self.send_text())
 
             def cleanup(task):
+                if self.mic_stream:
+                    self.mic_stream.stop_stream()
+                    self.mic_stream.close()
+                self.pya.terminate()
                 for t in tg._tasks:
                     t.cancel()
 
@@ -152,17 +165,13 @@ class AudioLoop:
             def check_error(task):
                 if task.cancelled():
                     return
-
-                if task.exception() is None:
-                    return
-
-                e = task.exception()
-                traceback.print_exception(None, e, e.__traceback__)
-                sys.exit(1)
+                if task.exception() is not None:
+                    e = task.exception()
+                    traceback.print_exception(None, e, e.__traceback__)
+                    sys.exit(1)
 
             for task in tg._tasks:
                 task.add_done_callback(check_error)
-
 
 if __name__ == "__main__":
     main = AudioLoop()

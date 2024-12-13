@@ -19,7 +19,7 @@ client = genai.Client(
 
 speech_config = genai.types.SpeechConfig(
     voice_config = genai.types.VoiceConfig(
-        prebuilt_voice_config = genai.types.PrebuiltVoiceConfig(voice_name="Fenrir") # Puck, Charon, Kore, Fenrir, Aoede
+        prebuilt_voice_config = genai.types.PrebuiltVoiceConfig(voice_name="Aoede") # Puck, Charon, Kore, Fenrir, Aoede
     )
 )
 

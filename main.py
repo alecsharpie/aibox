@@ -148,17 +148,17 @@ class AudioLoop:
         ):
             self.session = session
 
-            send_text_task = tg.create_task(self.send_text())
+            # send_text_task = tg.create_task(self.send_text())
 
-            def cleanup(task):
-                if self.mic_stream:
-                    self.mic_stream.stop_stream()
-                    self.mic_stream.close()
-                self.pya.terminate()
-                for t in tg._tasks:
-                    t.cancel()
+            # def cleanup(task):
+            #     if self.mic_stream:
+            #         self.mic_stream.stop_stream()
+            #         self.mic_stream.close()
+            #     self.pya.terminate()
+            #     for t in tg._tasks:
+            #         t.cancel()
 
-            send_text_task.add_done_callback(cleanup)
+            # send_text_task.add_done_callback(cleanup)
 
             tg.create_task(self.listen_audio())
             tg.create_task(self.send_audio())

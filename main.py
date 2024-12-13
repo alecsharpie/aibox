@@ -1,13 +1,8 @@
 import asyncio
-import base64
-import io
-import os
 import sys
 import traceback
 import pyaudio
-import PIL.Image
 from google import genai
-# from google.genai import types
 
 # Audio parameters
 FORMAT = pyaudio.paInt16

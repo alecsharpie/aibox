@@ -166,6 +166,41 @@ class AudioLoop:
                     await asyncio.sleep(1)
         except Exception as e:
             print(f"Failed to open output stream: {e}")
+
+    async def run(self):
+        async with (
+            client.aio.live.connect(model=MODEL, config=CONFIG) as session,
+            asyncio.TaskGroup() as tg,
+        ):
+            self.session = session
+
+            send_text_task = tg.create_task(self.send_text())
+
+            def cleanup(task):
+                if self.mic_stream:
+                    self.mic_stream.stop_stream()
+                    self.mic_stream.close()
+                self.pya.terminate()
+                for t in tg._tasks:
+                    t.cancel()
+
+            send_text_task.add_done_callback(cleanup)
+
+            tg.create_task(self.listen_audio())
+            tg.create_task(self.send_audio())
+            tg.create_task(self.receive_audio())
+            tg.create_task(self.play_audio())
+
+            def check_error(task):
+                if task.cancelled():
+                    return
+                if task.exception() is not None:
+                    e = task.exception()
+                    traceback.print_exception(None, e, e.__traceback__)
+                    sys.exit(1)
+
+            for task in tg._tasks:
+                task.add_done_callback(check_error)
                 
     def print_device_info(self):
         device_info = self.get_audio_technica_device()

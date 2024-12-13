@@ -7,12 +7,9 @@ import traceback
 import pyaudio
 import PIL.Image
 from google import genai
+# from google.genai import types
 
-if sys.version_info < (3, 11, 0):
-    import taskgroup, exceptiongroup
-    asyncio.TaskGroup = taskgroup.TaskGroup
-    asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
-
+# Audio parameters
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 SEND_SAMPLE_RATE = 16000
@@ -24,8 +21,19 @@ MODEL = "models/gemini-2.0-flash-exp"
 client = genai.Client(
     http_options={'api_version': 'v1alpha'})
 
-CONFIG={
-    "generation_config": {"response_modalities": ["AUDIO"]}}
+speech_config = genai.types.SpeechConfig(
+    voice_config = genai.types.VoiceConfig(
+        prebuilt_voice_config = genai.types.PrebuiltVoiceConfig(voice_name="Fenrir") # Puck, Charon, Kore, Fenrir, Aoede
+    )
+)
+
+CONFIG = {
+    "generation_config": {
+        "response_modalities": ["AUDIO"],
+    },
+    "speech_config": speech_config,
+}
+
 
 class AudioLoop:
     def __init__(self):

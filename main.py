@@ -133,6 +133,37 @@ class AudioLoop:
             print(f"Fatal microphone error: {e}")
             raise
 
+    async def send_audio(self):
+        while True:
+            chunk = await self.audio_out_queue.get()
+            await self.session.send({"data": chunk, "mime_type": "audio/pcm"})
+
+    async def receive_audio(self):
+        while True:
+            async for response in self.session.receive():
+                server_content = response.server_content
+                if server_content is not None:
+                    model_turn = server_content.model_turn
+                    if model_turn is not None:
+                        parts = model_turn.parts
+
+                        for part in parts:
+                            if part.text is not None:
+                                print(part.text, end="")
+                            elif part.inline_data is not None:
+                                self.is_playing.set()  # Set flag before playing
+                                await self.audio_in_queue.put(part.inline_data.data)
+
+                    server_content.model_turn = None
+                    turn_complete = server_content.turn_complete
+                    if turn_complete:
+                        print("Turn complete")
+                        # Clear the audio queue
+                        while not self.audio_in_queue.empty():
+                            self.audio_in_queue.get_nowait()
+                        await asyncio.sleep(0.1)  # Small delay before clearing flag
+                        self.is_playing.clear()
+
     async def play_audio(self):
         device_info = self.get_playback_device()
         if not device_info:

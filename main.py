@@ -64,25 +64,44 @@ class AudioLoop:
             if text.lower() == "q":
                 break
             await self.session.send(text or ".", end_of_turn=True)
-    
+        
+    def get_audio_technica_device(self):
+        # Look specifically for the Audio Technica device
+        for i in range(self.pya.get_device_count()):
+            try:
+                device_info = self.pya.get_device_info_by_index(i)
+                if "ATR4697-USB" in device_info['name']: # Audio Technica ATR4697-USB found with `cat /proc/asound/cards` & 'arecord -l'
+                    print(f"Found Audio Technica device: {device_info['name']}")
+                    return device_info
+            except Exception as e:
+                continue
+        return None
+
     async def listen_audio(self):
-        # Initialize microphone stream
-        mic_info = self.pya.get_default_input_device_info()
-        self.mic_stream = await asyncio.to_thread(
-            self.pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=SEND_SAMPLE_RATE,
-            input=True,
-            input_device_index=mic_info["index"],
-            frames_per_buffer=CHUNK_SIZE,
-        )
+        # Get the Audio Technica device specifically
+        device_info = await asyncio.to_thread(self.get_audio_technica_device)
+        if not device_info:
+            raise RuntimeError("Audio Technica device not found")
+        
+        print(f"Opening microphone with settings:")
+        print(f"Device index: {device_info['index']}")
+        print(f"Sample rate: {SEND_SAMPLE_RATE}")
+        print(f"Channels: {CHANNELS}")
         
         try:
+            self.mic_stream = await asyncio.to_thread(
+                self.pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=SEND_SAMPLE_RATE,
+                input=True,
+                input_device_index=int(device_info['index']),
+                frames_per_buffer=CHUNK_SIZE,
+            )
+            
             while True:
-                if not self.is_playing.is_set():  # Only read from mic when not playing
+                if not self.is_playing.is_set():
                     try:
-                        # Use a shorter timeout for reading to allow for smoother state transitions
                         data = await asyncio.to_thread(
                             self.mic_stream.read, 
                             CHUNK_SIZE, 
@@ -90,21 +109,19 @@ class AudioLoop:
                         )
                         await self.audio_out_queue.put(data)
                     except OSError as e:
-                        if e.errno == -9988:  # Stream closed error
-                            print("Microphone stream was closed, reopening...")
-                            # Reopen the stream if it was closed
-                            self.mic_stream = await asyncio.to_thread(
-                                self.pya.open,
-                                format=FORMAT,
-                                channels=CHANNELS,
-                                rate=SEND_SAMPLE_RATE,
-                                input=True,
-                                input_device_index=mic_info["index"],
-                                frames_per_buffer=CHUNK_SIZE,
-                            )
-                        else:
-                            print(f"Unexpected microphone error: {e}")
-                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                        print(f"Microphone error: {e}")
+                        # Attempt to reopen the stream
+                        self.mic_stream = await asyncio.to_thread(
+                            self.pya.open,
+                            format=FORMAT,
+                            channels=CHANNELS,
+                            rate=SEND_SAMPLE_RATE,
+                            input=True,
+                            input_device_index=int(device_info['index']),
+                            frames_per_buffer=CHUNK_SIZE,
+                        )
+                await asyncio.sleep(0.01)
+                        
         except Exception as e:
             print(f"Fatal microphone error: {e}")
             raise
@@ -194,7 +211,18 @@ class AudioLoop:
 
             for task in tg._tasks:
                 task.add_done_callback(check_error)
+                
+    def print_device_info(self):
+        device_info = self.get_audio_technica_device()
+        if device_info:
+            print("\nAudio Technica Device Information:")
+            print(f"Name: {device_info['name']}")
+            print(f"Index: {device_info['index']}")
+            print(f"Default Sample Rate: {device_info['defaultSampleRate']}")
+            print(f"Max Input Channels: {device_info['maxInputChannels']}")
+            print(f"Max Output Channels: {device_info['maxOutputChannels']}")
 
 if __name__ == "__main__":
     main = AudioLoop()
+    main.print_device_info()
     asyncio.run(main.run())

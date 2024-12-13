@@ -8,7 +8,7 @@ from google import genai
 # Audio parameters
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-SEND_SAMPLE_RATE = 16000
+SEND_SAMPLE_RATE = 44100
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 512
 
@@ -78,14 +78,13 @@ class AudioLoop:
         return None
 
     async def listen_audio(self):
-        # Get the Audio Technica device specifically
         device_info = await asyncio.to_thread(self.get_audio_technica_device)
         if not device_info:
             raise RuntimeError("Audio Technica device not found")
         
         print(f"Opening microphone with settings:")
         print(f"Device index: {device_info['index']}")
-        print(f"Sample rate: {SEND_SAMPLE_RATE}")
+        print(f"Sample rate: {int(device_info['defaultSampleRate'])}")  # Use the device's default rate
         print(f"Channels: {CHANNELS}")
         
         try:
@@ -93,7 +92,7 @@ class AudioLoop:
                 self.pya.open,
                 format=FORMAT,
                 channels=CHANNELS,
-                rate=SEND_SAMPLE_RATE,
+                rate=int(device_info['defaultSampleRate']),  # Use the device's default rate
                 input=True,
                 input_device_index=int(device_info['index']),
                 frames_per_buffer=CHUNK_SIZE,
@@ -115,13 +114,13 @@ class AudioLoop:
                             self.pya.open,
                             format=FORMAT,
                             channels=CHANNELS,
-                            rate=SEND_SAMPLE_RATE,
+                            rate=int(device_info['defaultSampleRate']),
                             input=True,
                             input_device_index=int(device_info['index']),
                             frames_per_buffer=CHUNK_SIZE,
                         )
                 await asyncio.sleep(0.01)
-                        
+                    
         except Exception as e:
             print(f"Fatal microphone error: {e}")
             raise

@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import os
 import traceback
 import pyaudio
 from google import genai
@@ -38,14 +39,32 @@ class AudioLoop:
         self.is_playing = asyncio.Event()
         self.mic_stream = None
         self.pya = pyaudio.PyAudio()  # Create PyAudio instance once
-
+        
+        # if file exists, read the message from the file
+        if os.path.exists('message.txt'):
+            messages = []
+            with open('message.txt', 'r') as file:
+                message_text = file.read()
+                message_text = message_text.strip()
+                messages.append(message_text)
+            self.messages = messages
+        
     async def send_text(self):
+        await asyncio.sleep(0.5)
+        # First process all messages from the list
+        if self.messages:
+            while self.messages:
+                line = self.messages.pop(0)
+                await self.session.send(line or ".", end_of_turn=True)
+                await asyncio.sleep(0.1)
+            
+        # Then switch to interactive console input
         while True:
             text = await asyncio.to_thread(input, "message > ")
             if text.lower() == "q":
                 break
             await self.session.send(text or ".", end_of_turn=True)
-
+    
     async def listen_audio(self):
         # Initialize microphone stream
         mic_info = self.pya.get_default_input_device_info()
@@ -148,17 +167,17 @@ class AudioLoop:
         ):
             self.session = session
 
-            # send_text_task = tg.create_task(self.send_text())
+            send_text_task = tg.create_task(self.send_text())
 
-            # def cleanup(task):
-            #     if self.mic_stream:
-            #         self.mic_stream.stop_stream()
-            #         self.mic_stream.close()
-            #     self.pya.terminate()
-            #     for t in tg._tasks:
-            #         t.cancel()
+            def cleanup(task):
+                if self.mic_stream:
+                    self.mic_stream.stop_stream()
+                    self.mic_stream.close()
+                self.pya.terminate()
+                for t in tg._tasks:
+                    t.cancel()
 
-            # send_text_task.add_done_callback(cleanup)
+            send_text_task.add_done_callback(cleanup)
 
             tg.create_task(self.listen_audio())
             tg.create_task(self.send_audio())

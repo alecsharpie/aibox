@@ -6,11 +6,17 @@ import pyaudio
 from google import genai
 
 # Audio parameters
-FORMAT = pyaudio.paInt16
-CHANNELS = 1 # Mono
-INPUT_RATE = 44100  # Native rate for ATR4697
-RECEIVE_SAMPLE_RATE = 44100 # 24000  # Rate for API
-CHUNK_SIZE = 1024  # Smaller chunk size CHUNK_SIZE = 512
+# FORMAT = pyaudio.paInt16
+# CHANNELS = 1 # Mono
+# INPUT_RATE = 44100  # Native rate for ATR4697
+# RECEIVE_SAMPLE_RATE = 44100 # 24000  # Rate for API
+# CHUNK_SIZE = 1024  # Smaller chunk size CHUNK_SIZE = 512
+
+FORMAT = pyaudio.paInt16  # Change from 8 to paInt16
+CHANNELS = 1
+INPUT_RATE = 44100
+RECEIVE_SAMPLE_RATE = 48000  # Match the Raspberry Pi's native rate
+CHUNK_SIZE = 1024
 
 MODEL = "models/gemini-2.0-flash-exp"
 
@@ -128,9 +134,15 @@ class AudioLoop:
                 continue
         return None
 
-    # Remove or modify get_playback_device to use ATR4697-USB instead of bcm2835 Headphones
     def get_playback_device(self):
-        return self.get_audio_technica_device()
+        for i in range(self.pya.get_device_count()):
+            try:
+                info = self.pya.get_device_info_by_index(i)
+                if "bcm2835 Headphones" in info.get('name', ''):
+                    return info
+            except Exception as e:
+                continue
+        return None
 
     
     async def listen_audio(self):
@@ -210,7 +222,7 @@ class AudioLoop:
                         self.is_playing.clear()
 
     async def play_audio(self):
-        device_info = self.get_audio_technica_device()
+        device_info = self.get_playback_device()
         if not device_info:
             raise RuntimeError("Audio Technica device not found")
 

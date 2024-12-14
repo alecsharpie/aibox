@@ -9,7 +9,7 @@ from google import genai
 FORMAT = pyaudio.paInt16
 CHANNELS = 1 # Mono
 INPUT_RATE = 44100  # Native rate for ATR4697
-RECEIVE_SAMPLE_RATE = 24000  # Rate for API
+RECEIVE_SAMPLE_RATE = 44100 # 24000  # Rate for API
 CHUNK_SIZE = 1024  # Smaller chunk size CHUNK_SIZE = 512
 
 MODEL = "models/gemini-2.0-flash-exp"

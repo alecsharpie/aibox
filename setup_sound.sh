@@ -1,19 +1,13 @@
+#!/bin/bash
+
 # Create user-specific config
-echo 'pcm.!default {
-    type asym
-    playback.pcm {
-        type plug
-        slave.pcm "hw:2,0"  # bcm2835 Headphones
-    }
-    capture.pcm {
-        type plug
-        slave.pcm "hw:3,0"  # ATR4697-USB
-    }
+cat << 'EOF' > ~/.asoundrc
+pcm.!default {
+    type plug
+    slave.pcm "dmix"
 }
 
-defaults.pcm.rate_converter "samplerate_best"
-
-pcm.microphone {
+pcm.mic {
     type plug
     slave {
         pcm "hw:3,0"  # ATR4697-USB
@@ -21,6 +15,11 @@ pcm.microphone {
         rate 44100
         channels 1
     }
+}
+
+ctl.mic {
+    type hw
+    card 3
 }
 
 pcm.speaker {
@@ -33,27 +32,22 @@ pcm.speaker {
     }
 }
 
-ctl.!default {
+ctl.speaker {
     type hw
-    card 2  # bcm2835 Headphones
-}' > ~/.asoundrc
+    card 2
+}
+EOF
 
 # Create system-wide config
-echo 'pcm.!default {
-    type asym
-    playback.pcm {
-        type plug
-        slave.pcm "hw:2,0"  # bcm2835 Headphones
-    }
-    capture.pcm {
-        type plug
-        slave.pcm "hw:3,0"  # ATR4697-USB
-    }
+sudo tee /etc/asound.conf << 'EOF'
+defaults.pcm.rate_converter "samplerate_medium"
+
+pcm.!default {
+    type plug
+    slave.pcm "dmix"
 }
 
-defaults.pcm.rate_converter "samplerate_best"
-
-pcm.microphone {
+pcm.mic {
     type plug
     slave {
         pcm "hw:3,0"  # ATR4697-USB
@@ -61,6 +55,11 @@ pcm.microphone {
         rate 44100
         channels 1
     }
+}
+
+ctl.mic {
+    type hw
+    card 3
 }
 
 pcm.speaker {
@@ -73,7 +72,11 @@ pcm.speaker {
     }
 }
 
-ctl.!default {
+ctl.speaker {
     type hw
-    card 2  # bcm2835 Headphones
-}' > /etc/asound.conf
+    card 2
+}
+EOF
+
+# Set permissions
+sudo chmod 666 /dev/snd/*

@@ -165,7 +165,8 @@ class AudioLoop:
                 input=True,
                 input_device_index=int(device_info['index']),
                 frames_per_buffer=CHUNK_SIZE,
-                stream_callback=None
+                stream_callback=None,
+                input_host_api_specific_stream_info=None
             )
             
             print("Microphone stream opened successfully")
